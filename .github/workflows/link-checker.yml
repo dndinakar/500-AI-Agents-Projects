@@ -20,14 +20,17 @@ jobs:
   check-links:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check links in README
-        uses: lycheeverse/lychee-action@v1
+        uses: lycheeverse/lychee-action@v2
         with:
-          args: |
+          args: >-
             --verbose
             --no-progress
+            --accept 200,429
+            --max-concurrency 4
+            --exclude 'github\.com/.+/blob/.+\.ipynb'
             --exclude 'shields.io'
             --exclude 'star-history.com'
             --exclude 'img.shields.io'
@@ -45,13 +48,22 @@ jobs:
 
       - name: Create issue for broken links
         if: failure() && github.event_name != 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
-            github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+            const { owner, repo } = context.repo;
+
+            // Forks have Issues disabled by default; skip instead of crashing.
+            const { data: repoInfo } = await github.rest.repos.get({ owner, repo });
+            if (!repoInfo.has_issues) {
+              core.warning('Issues are disabled in this repository, so no issue was created. See the workflow run for broken links.');
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner,
+              repo,
               title: '🔗 Broken links detected',
               body: 'The weekly link checker found broken links. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.',
               labels: ['bug', 'documentation']
-            })
+            });
